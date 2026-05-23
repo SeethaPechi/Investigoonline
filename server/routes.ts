@@ -1606,26 +1606,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!/^[a-zA-Z0-9._-]+$/.test(safeFileName) || safeFileName.startsWith('.')) {
         return res.status(400).json({ message: "Invalid file name" });
       }
+
+      const ext = path.extname(safeFileName).toLowerCase();
+      const mimeMap: Record<string, string> = {
+        '.webp': 'image/webp',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif',
+      };
+      const contentType = mimeMap[ext] || 'image/webp';
+
+      // 1. Try local filesystem first
       const localPath = process.cwd() + "/public/hero-images/" + safeFileName;
       // nosemgrep: javascript.lang.security.audit.detect-non-literal-fs-filename
       if (fs.existsSync(localPath)) {
-        const ext = path.extname(safeFileName).toLowerCase();
-        const mimeMap: Record<string, string> = {
-          '.webp': 'image/webp',
-          '.png': 'image/png',
-          '.jpg': 'image/jpeg',
-          '.jpeg': 'image/jpeg',
-          '.gif': 'image/gif',
-        };
         res.set({
-          'Content-Type': mimeMap[ext] || 'image/webp',
+          'Content-Type': contentType,
           'Cache-Control': 'public, max-age=31536000',
         });
         // nosemgrep: javascript.lang.security.audit.detect-non-literal-fs-filename
         return fs.createReadStream(localPath).pipe(res);
       }
 
-      // Image not found locally — return 404 (no GCS fallback on Railway)
+      // 2. Fallback: fetch from GCS object storage
+      try {
+        let bucketName = getBucketName();
+        if (bucketName.startsWith('/')) bucketName = bucketName.slice(1);
+        const objectPath = `public/hero-images/${safeFileName}`;
+        const bucket = objectStorageClient.bucket(bucketName);
+        const file = bucket.file(objectPath);
+        const [exists] = await file.exists();
+        if (exists) {
+          res.set({
+            'Content-Type': contentType,
+            'Cache-Control': 'public, max-age=31536000',
+          });
+          return file.createReadStream().pipe(res);
+        }
+      } catch (gcsError) {
+        console.error('[Image Serve] GCS fallback error:', gcsError);
+      }
+
       return res.status(404).json({ message: "Image not found" });
     } catch (error) {
       console.error("Error serving image:", error);
