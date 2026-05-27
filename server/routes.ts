@@ -771,12 +771,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Net worth routes
   app.post('/api/networth', async (req, res) => {
-    if (!req.session?.user?.id) {
-      return res.status(401).json({ message: "You must be logged in to access this resource" });
-    }
     try {
       const snapshotData = insertNetWorthSnapshotSchema.parse(req.body);
-      const snapshot = await storage.saveNetWorthSnapshot({ ...snapshotData, userId: req.session.user.id });
+      const userId = req.session?.user?.id ?? null;
+      const snapshot = await storage.saveNetWorthSnapshot({ ...snapshotData, userId });
       res.json(snapshot);
     } catch (error) {
       console.error("Error saving net worth snapshot:", error);
