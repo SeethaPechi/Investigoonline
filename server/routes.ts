@@ -785,43 +785,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const messageData = insertContactMessageSchema.parse(req.body);
       const message = await storage.createContactMessage(messageData);
 
-      // Send notification email to the configured Contact Email address
-      try {
-        const contactEmailSetting = await storage.getSiteSetting('contact_email');
-        const toEmail = contactEmailSetting?.settingValue?.trim();
-        if (toEmail) {
-          await sendContactEmail({
-            toEmail,
-            fromName: messageData.name,
-            fromEmail: messageData.email,
-            phone: messageData.phone || undefined,
-            subject: messageData.subject,
-            message: messageData.message,
-            preferredContact: messageData.preferredContact,
-          });
-        } else {
-          console.log("[Contact Email] No Contact Email configured in System Settings — skipping email.");
-        }
-      } catch (emailErr) {
-        console.error("[Contact Email] Failed to send notification email:", emailErr);
-      }
-
-      // Send auto-response to the submitter if configured
-      try {
-        const autoResponseSetting = await storage.getSiteSetting('contact_auto_response');
-        const autoResponseText = autoResponseSetting?.settingValue?.trim();
-        if (autoResponseText) {
-          await sendAutoResponseEmail({
-            toEmail: messageData.email,
-            toName: messageData.name,
-            autoResponseText,
-          });
-        }
-      } catch (autoErr) {
-        console.error("[Auto Response] Failed to send auto-response:", autoErr);
-      }
-
+      // Respond immediately so the user isn't blocked by email delivery time
       res.json({ message: "Your message has been sent successfully. We'll get back to you soon" });
+
+      // Fire emails in the background (non-blocking)
+      setImmediate(async () => {
+        try {
+          const contactEmailSetting = await storage.getSiteSetting('contact_email');
+          const toEmail = contactEmailSetting?.settingValue?.trim();
+          if (toEmail) {
+            await sendContactEmail({
+              toEmail,
+              fromName: messageData.name,
+              fromEmail: messageData.email,
+              phone: messageData.phone || undefined,
+              subject: messageData.subject,
+              message: messageData.message,
+              preferredContact: messageData.preferredContact,
+            });
+          } else {
+            console.log("[Contact Email] No Contact Email configured in System Settings — skipping email.");
+          }
+        } catch (emailErr) {
+          console.error("[Contact Email] Failed to send notification email:", emailErr);
+        }
+
+        try {
+          const autoResponseSetting = await storage.getSiteSetting('contact_auto_response');
+          const autoResponseText = autoResponseSetting?.settingValue?.trim();
+          if (autoResponseText) {
+            await sendAutoResponseEmail({
+              toEmail: messageData.email,
+              toName: messageData.name,
+              autoResponseText,
+            });
+          }
+        } catch (autoErr) {
+          console.error("[Auto Response] Failed to send auto-response:", autoErr);
+        }
+      });
     } catch (error) {
       console.error("Error sending contact message:", error);
       res.status(500).json({ message: "We're unable to send your message at this time. Please try again later" });
