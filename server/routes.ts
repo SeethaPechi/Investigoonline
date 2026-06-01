@@ -9,6 +9,50 @@ import path from "path";
 import fs from "fs";
 import nodemailer from "nodemailer";
 
+async function sendAutoResponseEmail(opts: {
+  toEmail: string;
+  toName: string;
+  autoResponseText: string;
+}) {
+  const [hostSetting, portSetting, userSetting, passSetting, fromSetting] = await Promise.all([
+    storage.getSiteSetting('smtp_host'),
+    storage.getSiteSetting('smtp_port'),
+    storage.getSiteSetting('smtp_user'),
+    storage.getSiteSetting('smtp_pass'),
+    storage.getSiteSetting('smtp_from'),
+  ]);
+
+  const smtpHost = hostSetting?.settingValue?.trim();
+  const smtpPort = parseInt(portSetting?.settingValue?.trim() || "587");
+  const smtpUser = userSetting?.settingValue?.trim();
+  const smtpPass = passSetting?.settingValue?.trim();
+  const smtpFrom = fromSetting?.settingValue?.trim() || smtpUser;
+
+  if (!smtpHost || !smtpUser || !smtpPass) {
+    console.log("[Auto Response] SMTP not configured — skipping auto-response.");
+    return;
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: smtpHost,
+    port: smtpPort,
+    secure: smtpPort === 465,
+    auth: { user: smtpUser, pass: smtpPass },
+  });
+
+  const esc = (s: string) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+  await transporter.sendMail({
+    from: `"${smtpFrom}"`,
+    to: opts.toEmail,
+    subject: "Thank you for contacting us",
+    // nosemgrep: javascript.lang.security.html-in-template-string
+    html: `<p>${esc(opts.autoResponseText).replace(/\n/g, "<br/>")}</p>`,
+    text: opts.autoResponseText,
+  });
+  console.log("[Auto Response] Sent successfully to", opts.toEmail);
+}
+
 async function sendContactEmail(opts: {
   toEmail: string;
   fromName: string;
@@ -762,6 +806,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("[Contact Email] Failed to send notification email:", emailErr);
       }
 
+      // Send auto-response to the submitter if configured
+      try {
+        const autoResponseSetting = await storage.getSiteSetting('contact_auto_response');
+        const autoResponseText = autoResponseSetting?.settingValue?.trim();
+        if (autoResponseText) {
+          await sendAutoResponseEmail({
+            toEmail: messageData.email,
+            toName: messageData.name,
+            autoResponseText,
+          });
+        }
+      } catch (autoErr) {
+        console.error("[Auto Response] Failed to send auto-response:", autoErr);
+      }
+
       res.json({ message: "Your message has been sent successfully. We'll get back to you soon" });
     } catch (error) {
       console.error("Error sending contact message:", error);
@@ -1482,15 +1541,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "You do not have permission to modify this setting" });
       }
 
-      const updatedSetting = await storage.updateSiteSetting(
+      const updatedSetting = await storage.upsertSiteSetting(
         settingKey,
         String(value),
+        'system',
+        undefined,
         req.session.user?.email
       );
-
-      if (!updatedSetting) {
-        return res.status(404).json({ message: "Setting not found" });
-      }
 
       res.json(updatedSetting);
     } catch (error) {
