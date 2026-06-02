@@ -471,6 +471,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Always respond 200 to prevent account enumeration
       res.json({ sent: true });
 
+      // Capture host before entering async background task
+      const appBaseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+
       // Send email in background
       setImmediate(async () => {
         try {
@@ -485,7 +488,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           const fromSetting = await storage.getSiteSetting('resend_from');
           const fromAddress = fromSetting?.settingValue?.trim() || "no-reply@investigoonline.com";
-          const resetUrl = `${process.env.APP_URL || 'https://investigoonline.com'}/reset-password?token=${token}`;
+          const resetUrl = `${appBaseUrl}/reset-password?token=${token}`;
 
           const hint = user.passwordHint ? esc(user.passwordHint) : null;
           const hintBlock = hint
@@ -524,6 +527,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Always respond 200 to prevent account enumeration
       res.json({ sent: true });
 
+      const appBaseUrl2 = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+
       setImmediate(async () => {
         try {
           const user = await storage.getUserByEmail(email);
@@ -536,7 +541,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           const fromSetting = await storage.getSiteSetting('resend_from');
           const fromAddress = fromSetting?.settingValue?.trim() || "no-reply@investigoonline.com";
-          const resetUrl = `${process.env.APP_URL || 'https://investigoonline.com'}/reset-password?token=${token}`;
+          const resetUrl = `${appBaseUrl2}/reset-password?token=${token}`;
 
           await sendResendEmail({
             from: fromAddress,
@@ -620,6 +625,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         role: user.role,
         authType: user.authType,
         isEmailVerified: user.isEmailVerified,
+        passwordHint: user.passwordHint || null,
         createdAt: user.createdAt,
       });
     } catch (error) {
@@ -676,6 +682,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error updating profile:", error);
       res.status(500).json({ message: "Unable to update profile at this time" });
+    }
+  });
+
+  // Change password from profile (requires current password)
+  app.post('/api/profile/change-password', async (req: any, res) => {
+    try {
+      if (!await verifyActiveSession(req, res)) return;
+
+      const { currentPassword, newPassword, passwordHint } = req.body;
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ message: "Current password and new password are required" });
+      }
+      if (newPassword.length < 8) {
+        return res.status(400).json({ message: "New password must be at least 8 characters" });
+      }
+
+      const user = await storage.getUser(req.session.user.id);
+      if (!user || !user.password) {
+        return res.status(400).json({ message: "Password change is not available for this account type" });
+      }
+
+      const currentPasswordValid = await bcrypt.compare(currentPassword, user.password);
+      if (!currentPasswordValid) {
+        return res.status(400).json({ message: "Current password is incorrect" });
+      }
+
+      const hashedPassword = await bcrypt.hash(newPassword, 12);
+      await storage.updateUser(user.id, {
+        password: hashedPassword,
+        passwordHint: passwordHint || user.passwordHint,
+        updatedAt: new Date(),
+      });
+
+      res.json({ message: "Password updated successfully" });
+    } catch (error) {
+      console.error("Error changing password:", error);
+      res.status(500).json({ message: "Unable to change password at this time" });
     }
   });
 
