@@ -39,6 +39,7 @@ import Flipbooks from "@/pages/Flipbooks";
 import Newsletters from "@/pages/Newsletters";
 import BackgroundPreview from "@/pages/BackgroundPreview";
 import ResetPassword from "@/pages/ResetPassword";
+import Events from "@/pages/Events";
 import NotFound from "@/pages/not-found";
 
 function ScrollToTop() {
@@ -73,6 +74,7 @@ function Router() {
         <Route path="/about/process" component={Process} />
         <Route path="/services" component={Services} />
         <Route path="/contact" component={Contact} />
+        <Route path="/events" component={Events} />
         <Route path="/faq">
           <PageProtectedRoute pageId="FAQ">
             <FAQ />

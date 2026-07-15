@@ -21,6 +21,7 @@ const ALL_NAVIGATION = [
   { name: "Home", href: "/", pageId: "Home (Landing/Dashboard)" },
   { name: "Services", href: "/services", pageId: "Services" },
   { name: "Contact Us", href: "/contact", pageId: "Contact" },
+  { name: "Events", href: "/events", pageId: undefined },
 ] as const;
 
 const ABOUT_ITEMS = [
@@ -55,9 +56,9 @@ export default function Header() {
   // Get page permissions for current user
   const { hasPageAccess, hasCalculatorCategoryAccess, permissions } = usePagePermissions();
 
-  // Filter navigation based on permissions
+  // Filter navigation based on permissions (items with no pageId are always shown)
   const navigation = useMemo(() => {
-    return ALL_NAVIGATION.filter(item => hasPageAccess(item.pageId));
+    return ALL_NAVIGATION.filter(item => item.pageId ? hasPageAccess(item.pageId) : true);
   }, [hasPageAccess, permissions]);
 
   const resourceItems = useMemo(() => {
